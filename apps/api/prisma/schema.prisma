@@ -1,0 +1,206 @@
+// Fonte de verdade dos tipos do Prisma Client.
+// A migration SQL em prisma/migrations é a fonte de verdade do banco.
+// Dinheiro: sempre inteiro em centavos (Int). Quantidade de cripto: Decimal.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "cjs"
+  importFileExtension = ""
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email           String    @unique
+  passwordHash    String    @map("password_hash")
+  passwordAlgo    String    @default("scrypt") @map("password_algo")
+  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  settings        UserSettings?
+  authTokens      AuthToken[]
+  refreshTokens   RefreshToken[]
+  months          MonthLedger[]
+  incomes         Income[]
+  expenses        Expense[]
+  creditCards     CreditCard[]
+  cardPurchases   CardPurchase[]
+  investments     InvestmentPlan[]
+  cryptoHoldings  CryptoHolding[]
+
+  @@map("users")
+}
+
+model AuthToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  type      String
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@map("auth_tokens")
+}
+
+model RefreshToken {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  familyId     String    @map("family_id") @db.Uuid
+  tokenHash    String    @unique @map("token_hash")
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(6)
+  replacedById String?   @map("replaced_by_id") @db.Uuid
+  userAgent    String?   @map("user_agent")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@map("refresh_tokens")
+}
+
+model UserSettings {
+  userId          String  @id @map("user_id") @db.Uuid
+  displayName     String? @map("display_name")
+  locale          String  @default("pt")
+  theme           String  @default("light")
+  timezone        String  @default("America/Sao_Paulo")
+  monthlyGoalCents Int    @default(0) @map("monthly_goal_cents")
+  privacyMode     Boolean @default(false) @map("privacy_mode")
+  privacyPinHash  String? @map("privacy_pin_hash")
+  onboarded       Boolean @default(false)
+  nameAsked       Boolean @default(false) @map("name_asked")
+  tutorialVersion Int     @default(0) @map("tutorial_version")
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+// Marca meses já "abertos" pelo usuário. A recorrência só copia dados para meses
+// que NUNCA foram abertos (mesma regra do site atual: não ressuscitar o que o usuário apagou).
+model MonthLedger {
+  userId   String   @map("user_id") @db.Uuid
+  ym       String   @db.Char(7)
+  openedAt DateTime @default(now()) @map("opened_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, ym])
+  @@map("month_ledger")
+}
+
+model Income {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  ym          String   @db.Char(7)
+  name        String
+  amountCents Int      @default(0) @map("amount_cents")
+  recurring   Boolean  @default(false)
+  /// Exatamente uma por mês quando há rendas. Garantido por índice único PARCIAL no SQL (o Prisma não o representa).
+  isPrimary   Boolean  @default(false) @map("is_primary")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, ym])
+  @@map("incomes")
+}
+
+model Expense {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String   @map("user_id") @db.Uuid
+  ym                 String   @db.Char(7)
+  name               String
+  icon               String   @default("receipt")
+  color              String
+  amountCents        Int      @default(0) @map("amount_cents")
+  recurring          Boolean  @default(false)
+  dueDay             Int?     @map("due_day") @db.SmallInt
+  installmentCurrent Int?     @map("installment_current") @db.SmallInt
+  installmentTotal   Int?     @map("installment_total") @db.SmallInt
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, ym])
+  @@map("expenses")
+}
+
+model CreditCard {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  name       String
+  color      String
+  limitCents Int      @default(0) @map("limit_cents")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purchases CardPurchase[]
+
+  @@index([userId])
+  @@map("credit_cards")
+}
+
+model CardPurchase {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cardId             String   @map("card_id") @db.Uuid
+  userId             String   @map("user_id") @db.Uuid
+  name               String
+  amountCents        Int      @map("amount_cents")
+  installmentCurrent Int?     @map("installment_current") @db.SmallInt
+  installmentTotal   Int?     @map("installment_total") @db.SmallInt
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  card CreditCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  user User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
+  @@index([userId])
+  @@map("card_purchases")
+}
+
+model InvestmentPlan {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String   @map("user_id") @db.Uuid
+  name               String
+  type               String
+  targetLimitCents   Int      @default(0) @map("target_limit_cents")
+  monthlyAmountCents Int      @default(0) @map("monthly_amount_cents")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("investment_plans")
+}
+
+model CryptoHolding {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  coinId        String?  @map("coin_id")
+  quantity      Decimal  @default(0) @db.Decimal(30, 12)
+  buyPriceCents Int      @default(0) @map("buy_price_cents")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("crypto_holdings")
+}

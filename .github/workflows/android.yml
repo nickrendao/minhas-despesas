@@ -1,0 +1,98 @@
+name: Android (AAB para a Play e APK para teste)
+
+# Rode em: Actions > "Android" > Run workflow. Gera o app local (sem servidor) como AAB (Play Store) e APKs.
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Nome da versão (ex.: 1.0.2)'
+        required: true
+        default: '1.0.2'
+      version_code:
+        description: 'Código da versão: número inteiro que SOBE a cada envio à Play'
+        required: true
+        default: '3'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERSION_NAME: ${{ inputs.version_name }}
+      VERSION_CODE: ${{ inputs.version_code }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validar o Gradle wrapper (impede jar adulterado)
+        uses: gradle/actions/wrapper-validation@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Empacotar o app (HTML único com tudo dentro)
+        env:
+          FEEDBACK_EMAIL: ${{ vars.FEEDBACK_EMAIL }}
+          PRIVACY_URL: ${{ vars.PRIVACY_URL }}
+          SOURCE_URL: ${{ vars.SOURCE_URL }}
+          APP_VERSION: ${{ inputs.version_name }}
+        run: |
+          node apps/web/local/build-local.js
+          cp apps/web/dist-local/minhas-despesas-local.html apps/android/app/src/main/assets/app.html
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Chave de upload (só se os segredos existirem)
+        env:
+          KS_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KS_BASE64" ]; then
+            echo "$KS_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/upload.jks" >> "$GITHUB_ENV"
+            echo "Chave de upload carregada: o AAB sai ASSINADO."
+          else
+            echo "::warning::Sem segredos de assinatura: o AAB/APK release sai SEM assinar (serve só para conferir o build)."
+          fi
+
+      - name: Compilar
+        working-directory: apps/android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:bundleRelease :app:assembleRelease :app:assembleDebug
+
+      - name: AAB (envie este arquivo à Play Console)
+        uses: actions/upload-artifact@v4
+        with:
+          name: minhas-despesas-aab
+          path: apps/android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+
+      - name: APK de teste (instala direto no celular)
+        uses: actions/upload-artifact@v4
+        with:
+          name: minhas-despesas-apk-debug
+          path: apps/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Relatório do lint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint
+          path: apps/android/app/build/reports/lint-results-*.html
+          if-no-files-found: ignore

@@ -1,0 +1,14 @@
+{
+  "name": "fin-platform",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "build": "npm run build -w @fin/shared && npm run build -w @fin/api-client && npm run build -w @fin/api && npm run build -w @fin/web",
+    "test": "npm run build -w @fin/shared && npm run test -w @fin/api && npm run test -w @fin/web",
+    "db:up": "docker compose up -d db",
+    "setup": "npm run build -w @fin/shared && npm run build -w @fin/api-client && npm run db:setup -w @fin/api && npm run build -w @fin/api && npm run build -w @fin/web",
+    "local:api": "npm run start -w @fin/api",
+    "local:web": "npm run start -w @fin/web"
+  }
+}

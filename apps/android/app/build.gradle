@@ -1,0 +1,52 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Versão e assinatura vêm do ambiente (GitHub Actions). Sem chave de assinatura, a variante release sai SEM assinar (serve para conferir o build).
+def versionNameEnv = System.getenv('VERSION_NAME') ?: '1.0.2'
+def versionCodeEnv = (System.getenv('VERSION_CODE') ?: '3') as int
+def keystorePath = System.getenv('ANDROID_KEYSTORE_FILE')
+
+android {
+    namespace 'br.com.minhasdespesas.app'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'br.com.minhasdespesas.app'
+        minSdk 24
+        targetSdk 36
+        versionCode versionCodeEnv
+        versionName versionNameEnv
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePath) {
+                storeFile file(keystorePath)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (keystorePath) signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    bundle {
+        language { enableSplit = false }   // um só pacote de idioma (o app é só em português)
+    }
+
+    lint {
+        abortOnError false   // relatório de lint fica como artefato; ajuste para true quando estiver limpo
+    }
+}
